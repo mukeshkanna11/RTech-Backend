@@ -9,33 +9,35 @@ const router = express.Router();
 
 /**
  * @route   POST /api/auth/register
- * @desc    Register new user (with employeeId)
+ * @desc    Register new user (Employee/Admin)
  * @access  Public
  */
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password, employeeId } = req.body;
+    const { name, email, password, employeeId, role } = req.body;
 
-    // ✅ Validate all fields
     if (!name || !email || !password || !employeeId) {
       return res.status(400).json({ msg: "All fields are required" });
     }
 
-    // ✅ Check if user already exists by email
+    // ✅ Only allow readytechsolutions.com emails
+    if (!email.toLowerCase().endsWith("@readytechsolutions.com")) {
+      return res.status(403).json({ msg: "Only ReadyTech Solutions emails are allowed" });
+    }
+
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ msg: "User already exists" });
     }
 
-    // ✅ Hash password before saving
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // ✅ Create user
     const user = await User.create({
       name,
       email: email.toLowerCase(),
       password: hashedPassword,
       employeeId: employeeId.trim(),
+      role: role === "admin" ? "admin" : "employee", // default to employee
     });
 
     res.status(201).json({
@@ -45,6 +47,7 @@ router.post("/register", async (req, res) => {
         name: user.name,
         email: user.email,
         employeeId: user.employeeId,
+        role: user.role,
       },
     });
   } catch (err) {
@@ -55,14 +58,13 @@ router.post("/register", async (req, res) => {
 
 /**
  * @route   POST /api/auth/login
- * @desc    Login user with email, password & employeeId
+ * @desc    Login user (admin/employee)
  * @access  Public
  */
 router.post("/login", async (req, res) => {
   try {
     let { email, password, employeeId } = req.body;
 
-    // ---------------- Input validation ----------------
     if (!email || !password || !employeeId) {
       return res.status(400).json({ msg: "All fields are required" });
     }
@@ -70,31 +72,31 @@ router.post("/login", async (req, res) => {
     email = email.toLowerCase().trim();
     employeeId = employeeId.trim();
 
-    // ---------------- Find user ----------------
+    // ✅ Only ReadyTech emails allowed
+    if (!email.endsWith("@readytechsolutions.com")) {
+      return res.status(403).json({ msg: "Only ReadyTech Solutions emails are allowed" });
+    }
+
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ msg: "Invalid email or password" });
     }
 
-    // ---------------- Validate employee ID ----------------
     if (user.employeeId !== employeeId) {
-      return res
-        .status(403)
-        .json({ msg: "Access denied. Employee ID does not match" });
+      return res.status(403).json({ msg: "Access denied. Employee ID does not match" });
     }
 
-    // ---------------- Compare password ----------------
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ msg: "Invalid email or password" });
     }
 
-    // ---------------- Generate JWT token ----------------
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "1d",
-    });
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
 
-    // ---------------- Response ----------------
     res.status(200).json({
       msg: "Login successful",
       token,
@@ -103,6 +105,7 @@ router.post("/login", async (req, res) => {
         name: user.name,
         email: user.email,
         employeeId: user.employeeId,
+        role: user.role,
       },
     });
   } catch (err) {
@@ -110,6 +113,7 @@ router.post("/login", async (req, res) => {
     res.status(500).json({ msg: "Server error", error: err.message });
   }
 });
+
 /**
  * @route   GET /api/auth/protected
  * @desc    Get current user (protected route)
@@ -117,11 +121,8 @@ router.post("/login", async (req, res) => {
  */
 router.get("/protected", verifyToken, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select("-password");
-    if (!user) {
-      return res.status(404).json({ msg: "User not found" });
-    }
-
+    const user = await User.findById(req.user._id).select("-password");
+    if (!user) return res.status(404).json({ msg: "User not found" });
     res.json(user);
   } catch (err) {
     console.error("PROTECTED ROUTE ERROR:", err);

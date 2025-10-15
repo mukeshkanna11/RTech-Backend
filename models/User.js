@@ -1,3 +1,4 @@
+// models/User.js
 import mongoose from "mongoose";
 
 const UserSchema = new mongoose.Schema(
@@ -21,10 +22,18 @@ const UserSchema = new mongoose.Schema(
     employeeId: {
       type: String,
       required: true,
-      unique: true
+      unique: true,
+      trim: true,
     },
-    role: { type: String, default: "Employee" },
-    department: { type: String, default: "General" }, // new field
+    role: {
+      type: String,
+      enum: ["admin", "employee"],
+      default: "employee",
+    },
+    department: {
+      type: String,
+      default: "General",
+    },
   },
   { timestamps: true }
 );
