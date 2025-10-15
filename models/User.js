@@ -1,5 +1,12 @@
 import mongoose from "mongoose";
 
+// Generate allowed Employee IDs dynamically
+export const isAllowedEmployeeId = (id) => {
+  const prefix = "RTS";
+  const number = parseInt(id.replace(prefix, ""), 10);
+  return prefix && number >= 1 && number <= 1500;
+};
+
 const UserSchema = new mongoose.Schema(
   {
     name: {
@@ -21,12 +28,12 @@ const UserSchema = new mongoose.Schema(
     employeeId: {
       type: String,
       required: true,
-      unique: true
+      unique: true,
     },
     role: {
       type: String,
       required: true,
-      enum: ["admin", "employee"], // only allow these values
+      enum: ["admin", "employee"], // only admin or employee
     },
     department: { type: String, default: "General" },
   },

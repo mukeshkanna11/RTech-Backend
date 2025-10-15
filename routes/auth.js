@@ -1,47 +1,50 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import User, { allowedEmployeeIds } from "../models/User.js";
-import { verifyToken } from "../middleware/verifyToken.js";
+import User, { isAllowedEmployeeId } from "../models/User.js";
 
 const router = express.Router();
 
-// -------------------- REGISTER --------------------
-// routes/auth.js
+/**
+ * @route   POST /api/auth/register
+ * @desc    Register user (admin or employee)
+ */
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password, employeeId, role, department } = req.body;
+    const { name, email, password, employeeId, role } = req.body;
 
-    // Validate all required fields
+    // ✅ Validate all fields
     if (!name || !email || !password || !employeeId || !role) {
       return res.status(400).json({ msg: "All fields are required" });
     }
 
-    // Only allow admin or employee
-    if (role !== "admin" && role !== "employee") {
-      return res.status(400).json({ msg: "Invalid role. Must be 'admin' or 'employee'" });
+    // ✅ Validate role
+    const normalizedRole = role.toLowerCase();
+    if (!["admin", "employee"].includes(normalizedRole)) {
+      return res.status(400).json({ msg: "Role must be admin or employee" });
     }
 
-    // Only readytechsolutions email
-    if (!email.endsWith("@readytechsolutions.com")) {
-      return res.status(400).json({ msg: "Only readytechsolutions.com emails allowed" });
+    // ✅ Validate Employee ID
+    if (!isAllowedEmployeeId(employeeId)) {
+      return res.status(403).json({ msg: "Employee ID not allowed" });
     }
 
-    // Check if user exists
+    // ✅ Check if user already exists
     const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(400).json({ msg: "User already exists" });
+    if (existingUser) {
+      return res.status(400).json({ msg: "User already exists" });
+    }
 
-    // Hash password
+    // ✅ Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user
+    // ✅ Create user
     const user = await User.create({
       name,
       email: email.toLowerCase(),
       password: hashedPassword,
       employeeId: employeeId.trim(),
-      role: role.toLowerCase(), // important
-      department: department || "General",
+      role: normalizedRole,
     });
 
     res.status(201).json({
@@ -52,7 +55,6 @@ router.post("/register", async (req, res) => {
         email: user.email,
         employeeId: user.employeeId,
         role: user.role,
-        department: user.department,
       },
     });
   } catch (err) {
@@ -61,11 +63,15 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// -------------------- LOGIN --------------------
+/**
+ * @route   POST /api/auth/login
+ * @desc    Login user (admin or employee)
+ */
 router.post("/login", async (req, res) => {
   try {
     let { email, password, employeeId } = req.body;
 
+    // ✅ Validate inputs
     if (!email || !password || !employeeId) {
       return res.status(400).json({ msg: "All fields are required" });
     }
@@ -73,19 +79,29 @@ router.post("/login", async (req, res) => {
     email = email.toLowerCase().trim();
     employeeId = employeeId.trim();
 
+    // ✅ Find user
     const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ msg: "Invalid email or password" });
-
-    if (user.employeeId !== employeeId) {
-      return res.status(403).json({ msg: "Access denied. Employee ID does not match" });
+    if (!user) {
+      return res.status(400).json({ msg: "Invalid email or password" });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ msg: "Invalid email or password" });
+    // ✅ Check Employee ID
+    if (user.employeeId !== employeeId) {
+      return res.status(403).json({ msg: "Employee ID does not match" });
+    }
 
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
-      expiresIn: "1d",
-    });
+    // ✅ Compare password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ msg: "Invalid email or password" });
+    }
+
+    // ✅ Generate JWT
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
 
     res.status(200).json({
       msg: "Login successful",
@@ -100,19 +116,6 @@ router.post("/login", async (req, res) => {
     });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
-    res.status(500).json({ msg: "Server error", error: err.message });
-  }
-});
-
-// -------------------- PROTECTED --------------------
-router.get("/protected", verifyToken, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id).select("-password");
-    if (!user) return res.status(404).json({ msg: "User not found" });
-
-    res.json(user);
-  } catch (err) {
-    console.error("PROTECTED ROUTE ERROR:", err);
     res.status(500).json({ msg: "Server error", error: err.message });
   }
 });
