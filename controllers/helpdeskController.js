@@ -1,104 +1,111 @@
-// // backend/controllers/helpdeskController.js
-// import HelpdeskTicket from "../models/HelpdeskTicket.js";
-// import { customAlphabet } from "nanoid";
+import HelpdeskTicket from "../models/HelpdeskTicket.js";
+import crypto from "crypto";
 
-// const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 8);
+// Generate random token
+const generateToken = () => crypto.randomBytes(4).toString("hex");
 
-// // POST /api/helpdesk/create-ticket
-// export const createTicket = async (req, res, next) => {
-//   try {
-//     const { name, email, phone, subject = "General", message = "Chat started" } = req.body || {};
+// Shared ticket token
+export const SHARED_TOKEN = "helpdesk_shared";
 
-//     if (!message) return res.status(400).json({ error: "message required" });
+// Ensure shared ticket exists
+export const ensureSharedTicketExists = async () => {
+  let ticket = await HelpdeskTicket.findOne({ tokenId: SHARED_TOKEN });
+  if (!ticket) {
+    ticket = await HelpdeskTicket.create({
+      tokenId: SHARED_TOKEN,
+      email: "shared@helpdesk.com",
+      subject: "Shared Helpdesk Ticket",
+      description: "All users can post messages here",
+      responses: [],
+      status: "Open",
+    });
+  }
+  return ticket;
+};
 
-//     const tokenId = nanoid();
+// Create individual ticket
+export const createTicket = async (req, res) => {
+  try {
+    const { email, text } = req.body;
+    if (!email || !text)
+      return res.status(400).json({ success: false, message: "Email and text required" });
 
-//     const ticket = new HelpdeskTicket({
-//       tokenId,
-//       name,
-//       email,
-//       phone,
-//       subject,
-//       message,
-//       responses: [
-//         { from: "bot", text: process.env.TICKET_AUTO_REPLY || "Thanks — we received your request. We'll get back to you soon." },
-//       ],
-//     });
+    const tokenId = generateToken();
+    const ticket = await HelpdeskTicket.create({
+      tokenId,
+      email,
+      subject: "",
+      description: "",
+      responses: [{ from: "user", text }],
+      status: "New",
+    });
 
-//     await ticket.save();
+    res.status(201).json({ success: true, message: "Ticket created", ticket });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
-//     return res.status(201).json({
-//       ticketId: tokenId,
-//       status: ticket.status,
-//       autoReply: ticket.responses[0].text,
-//       createdAt: ticket.createdAt,
-//     });
-//   } catch (err) {
-//     next(err);
-//   }
-// };
+// Add response
+export const addResponse = async (req, res) => {
+  try {
+    const { ticketId } = req.params;
+    const { from, text } = req.body;
+    if (!from || !text)
+      return res.status(400).json({ success: false, message: "Sender and text required" });
 
-// // POST /api/helpdesk/send
-// export const sendMessage = async (req, res, next) => {
-//   try {
-//     const { ticketId, message } = req.body || {};
-//     if (!ticketId || !message) return res.status(400).json({ error: "ticketId and message required" });
+    let ticket;
+    if (ticketId === SHARED_TOKEN) {
+      ticket = await ensureSharedTicketExists();
+    } else {
+      ticket = await HelpdeskTicket.findOne({ tokenId: ticketId });
+      if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found" });
+    }
 
-//     const ticket = await HelpdeskTicket.findOne({ tokenId: ticketId });
-//     if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+    ticket.responses.push({ from, text });
+    ticket.status = "Open";
+    await ticket.save();
 
-//     // Save user message
-//     ticket.responses.push({ from: "user", text: message });
+    res.json({ success: true, message: "Response added", ticket });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
-//     // Example: simple auto-reply bot (replace with real logic later)
-//     const botReply = process.env.TICKET_AUTO_REPLY || "Thanks — we received your message. We'll respond soon.";
-//     ticket.responses.push({ from: "bot", text: botReply });
+// Get ticket by ID
+export const getTicketById = async (req, res) => {
+  try {
+    const { ticketId } = req.params;
+    let ticket =
+      ticketId === SHARED_TOKEN
+        ? await ensureSharedTicketExists()
+        : await HelpdeskTicket.findOne({ tokenId: ticketId });
 
-//     await ticket.save();
+    if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found" });
 
-//     return res.json({ success: true, reply: botReply, ticket });
-//   } catch (err) {
-//     next(err);
-//   }
-// };
+    res.json({ success: true, ticket });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
-// // GET /api/helpdesk/:token
-// export const getTicket = async (req, res, next) => {
-//   try {
-//     const { token } = req.params;
-//     const ticket = await HelpdeskTicket.findOne({ tokenId: token }).lean();
-//     if (!ticket) return res.status(404).json({ error: "Ticket not found" });
-//     return res.json(ticket);
-//   } catch (err) {
-//     next(err);
-//   }
-// };
+// Get tickets by email
+export const getTicketByEmail = async (req, res) => {
+  try {
+    const { email } = req.params;
+    const tickets = await HelpdeskTicket.find({ email });
+    res.json({ success: true, tickets });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
-// // PATCH /api/helpdesk/:token (admin)
-// export const patchTicket = async (req, res, next) => {
-//   try {
-//     const apiKey = process.env.API_KEY;
-//     const provided = req.headers["x-api-key"] || req.body.apiKey;
-//     if (apiKey && provided !== apiKey) return res.status(401).json({ error: "Unauthorized" });
-
-//     const { token } = req.params;
-//     const { status, response } = req.body || {};
-//     const ticket = await HelpdeskTicket.findOne({ tokenId: token });
-//     if (!ticket) return res.status(404).json({ error: "Ticket not found" });
-
-//     if (status) ticket.status = status;
-//     if (response && response.text) {
-//       ticket.responses.push({
-//         from: response.from || "agent",
-//         text: response.text,
-//       });
-//     }
-
-//     await ticket.save();
-
-//     // Optionally notify user here by email (not implemented)
-//     return res.json(ticket);
-//   } catch (err) {
-//     next(err);
-//   }
-// };
+// Get all tickets
+export const getAllTickets = async (req, res) => {
+  try {
+    const tickets = await HelpdeskTicket.find().sort({ createdAt: -1 });
+    res.json({ success: true, tickets });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};

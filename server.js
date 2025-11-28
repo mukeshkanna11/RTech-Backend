@@ -1,4 +1,4 @@
-// server.js — ReadyTech Backend (Final Updated Clean Version)
+// server.js — ReadyTech Backend (Final Updated Version)
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
@@ -36,15 +36,15 @@ const __dirname = path.dirname(__filename);
 // Middlewares
 // =============================================================
 app.use(helmet());
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "10mb" })); // Parse JSON body
 app.use(express.urlencoded({ extended: true }));
 app.use(compression());
 if (process.env.NODE_ENV !== "test") app.use(morgan("dev"));
 
 // ========================== Rate Limiter ======================
 const ticketLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 8,
+  windowMs: 60 * 1000, // 1 minute
+  max: 8, // max 8 requests per minute
   message: { error: "Too many requests. Try again in 1 minute." },
 });
 
@@ -62,9 +62,8 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin) return callback(null, true); 
+      if (!origin) return callback(null, true); // Postman or server requests
       if (allowedOrigins.includes(origin)) return callback(null, true);
-
       console.log("❌ CORS Blocked:", origin);
       return callback(new Error("Not allowed by CORS"));
     },
@@ -74,7 +73,7 @@ app.use(
   })
 );
 
-// Extra CORS headers (Important for Postman / Mobile)
+// Extra CORS headers for Postman / Mobile
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header(
